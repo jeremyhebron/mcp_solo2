@@ -25,9 +25,13 @@ rl.on("close", () => shutDown());
 while (!isShuttingDown) {
   const prompt = await rl.question("Prompt: ");
 
-  const finalResponse = await generalPurposeAgent.start({
+  const { finalResponse, usage } = await generalPurposeAgent.start({
     prompt: prompt,
   });
+
+  process.stdout.write("\n");
+  console.table(usage);
+  process.stdout.write("\n");
 
   console.log(finalResponse);
 }

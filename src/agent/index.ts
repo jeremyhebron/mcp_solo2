@@ -9,7 +9,14 @@ const generalPurposeAgent = new Agent({
     baseURL: "http://localhost:11434/v1",
   }),
   model: "gemma4:latest",
-  role: "You are a helpful assistant",
+  role: "You are a helpful assistant, use the playwright browser tools to search the web.",
+  mcpConfig: {
+    playwright: {
+      transport: "stdio",
+      command: "npx",
+      arguments: ["@playwright/mcp@latest"],
+    },
+  },
   localTools: { getWeather },
 });
 
