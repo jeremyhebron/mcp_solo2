@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
-import { MCPTool, type LocalTool, type Tool } from "./tool.ts";
+import { MCPTool, SubAgentTool, type LocalTool, type Tool } from "./tool.ts";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -25,6 +25,7 @@ export class Agent {
   role: string;
   client: OpenAI;
   model: string;
+  subagents?: Record<string, Agent>;
   messages: ChatCompletionMessageParam[];
   toolRegistry: Record<string, Tool>;
   mcpClients: Set<Client>;
@@ -37,11 +38,22 @@ export class Agent {
     model: string;
     localTools: Record<string, LocalTool<any, any>>;
     mcpConfig?: MCPConfig;
+    subagents?: Record<string, Agent>;
   }) {
     this.id = args.id;
+    this.toolRegistry = {};
     this.role = args.role;
     this.client = args.client;
     this.model = args.model;
+    if (args.subagents) {
+      this.subagents = args.subagents;
+
+      const subagentTool = new SubAgentTool({
+        subagents: this.subagents,
+      });
+
+      this.toolRegistry[subagentTool.name] = subagentTool;
+    }
     if (args.mcpConfig) this.mcpConfig = args.mcpConfig;
 
     this.mcpClients = new Set();
@@ -51,7 +63,6 @@ export class Agent {
         content: this.role,
       },
     ];
-    this.toolRegistry = {};
     for (const localTool of Object.values(args.localTools)) {
       this.toolRegistry[localTool.name] = localTool;
     }
@@ -215,6 +226,13 @@ export class Agent {
         function: { name: string; arguments: string };
       }
     >,
+    superAgentUsage: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      tps: number;
+      time_to_first_token_ms: number;
+    },
   ) {
     this.messages.push({
       role: "assistant",
@@ -232,6 +250,15 @@ export class Agent {
       }
       const parsedArgs = JSON.parse(toolCall.function.arguments);
       const result = await tool.execute(parsedArgs);
+
+      //@ts-ignore
+      if (tool instanceof SubAgentTool && result instanceof Error === false) {
+        superAgentUsage.completion_tokens += (
+          result as any
+        ).usage.completion_tokens;
+        superAgentUsage.prompt_tokens += (result as any).usage.prompt_tokens;
+        superAgentUsage.total_tokens += (result as any).usage.total_tokens;
+      }
 
       this.messages.push({
         role: "tool",
@@ -291,7 +318,7 @@ export class Agent {
           : 0;
 
       if (toolCalls.size > 0) {
-        await this.executeToolCalls(toolCalls);
+        await this.executeToolCalls(toolCalls, usage);
       } else if (finalResponse) {
         this.messages.push({
           role: "assistant",

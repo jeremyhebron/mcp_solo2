@@ -1,9 +1,7 @@
 import type { Client } from "@modelcontextprotocol/sdk/client";
-import type {
-  ChatCompletionFunctionCallOption,
-  ChatCompletionFunctionTool,
-} from "openai/resources";
-import type { z, ZodObject } from "zod";
+import type { ChatCompletionFunctionTool } from "openai/resources";
+import { z, type ZodObject } from "zod";
+import type { Agent } from "./agent.ts";
 
 export abstract class Tool {
   name: string;
@@ -84,6 +82,68 @@ export class MCPTool extends Tool {
         name: this.name,
         arguments: input,
       });
+    } catch (error) {
+      return error as Error;
+    }
+  }
+}
+
+export class SubAgentTool extends Tool {
+  subagents: Record<string, Agent>;
+
+  constructor(args: { subagents: Record<string, Agent> }) {
+    const subagentDescription = Object.values(args.subagents)
+      .map(
+        (subagent) =>
+          `Agent ID: ${subagent.id}, Role: ${subagent.role.slice(0, 200)}`,
+      )
+      .join("\n");
+
+    super({
+      name: "subagent_tool",
+      description: `Use this tool to delegate a task to a specialist agent. the subagents are as follows: ${subagentDescription}`,
+    });
+    this.subagents = args.subagents;
+    const agentIds = Object.values(this.subagents).map(
+      (subagent) => subagent.id,
+    );
+    this.definition.function.parameters = z
+      .object({
+        agentId: z.enum(agentIds),
+        prompt: z.string(),
+      })
+      .toJSONSchema();
+  }
+
+  async execute(input: { agentId: string; prompt: string }): Promise<
+    | {
+        finalResponse: string;
+        usage: {
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+          tps: number;
+          time_to_first_token_ms: number;
+        };
+      }
+    | Error
+  > {
+    try {
+      const subagent = Object.values(this.subagents).find(
+        (subagent) => subagent.id === input.agentId,
+      );
+      if (!subagent) {
+        throw new Error(`Subagent with ID ${input.agentId} does not exist.`);
+      }
+
+      console.log(`Calling Subagent: ${subagent.id}`);
+      const { finalResponse, usage } = await subagent.start({
+        prompt: input.prompt,
+      });
+
+      console.log(`Subagent: ${finalResponse}`);
+
+      return { finalResponse, usage };
     } catch (error) {
       return error as Error;
     }

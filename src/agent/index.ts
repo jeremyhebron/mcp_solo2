@@ -1,23 +1,23 @@
 import OpenAI from "openai";
 import { Agent } from "../lib/agent.ts";
 import getWeather from "../tools/getWeather.ts";
+import browserAgent from "./browser_agent.ts";
+import desktopAgent from "./desktop_agent.ts";
 
-const generalPurposeAgent = new Agent({
-  id: "General Purpose",
+const orchestratorAgent = new Agent({
+  id: "Orchestrator Agent",
   client: new OpenAI({
-    apiKey: "no key",
-    baseURL: "http://localhost:11434/v1",
+    apiKey: process.env.OPEN_ROUTER_API_KEY,
+    baseURL: "https://openrouter.ai/api/v1",
   }),
-  model: "gemma4:latest",
-  role: "You are a helpful assistant, use the playwright browser tools to search the web.",
-  mcpConfig: {
-    playwright: {
-      transport: "stdio",
-      command: "npx",
-      arguments: ["@playwright/mcp@latest"],
-    },
+  model: "deepseek/deepseek-v4-pro",
+  role: "Are are the orchestraion agent. You have a team of specialist for specific tasks. Use the browser agent for tasks requiring web serach or web scraping. Use the desktop agent for tasks requiring the file system.",
+
+  localTools: {},
+  subagents: {
+    browserAgent,
+    desktopAgent,
   },
-  localTools: { getWeather },
 });
 
-export default generalPurposeAgent;
+export default orchestratorAgent;
