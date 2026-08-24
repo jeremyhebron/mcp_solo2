@@ -8,7 +8,7 @@ const browserAgent = new Agent({
     baseURL: "https://openrouter.ai/api/v1",
   }),
   model: "deepseek/deepseek-v4-pro",
-  role: "You are a helpful assistant, use the playwright browser tools to search or scrape the web.",
+  role: "You are a helpful assistant, use the playwright browser tools to automate browsers or scrape the web.",
   mcpConfig: {
     playwright: {
       transport: "stdio",

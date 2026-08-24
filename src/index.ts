@@ -1,6 +1,5 @@
-import { createInterface } from "node:readline/promises";
-import { is } from "zod/locales";
 import "./env.ts";
+import { createInterface } from "node:readline/promises";
 import { Agent } from "./lib/agent.ts";
 import generalPurposeAgent from "./agent/index.ts";
 
