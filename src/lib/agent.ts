@@ -1,10 +1,17 @@
 import type OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
-import { MCPTool, SubAgentTool, type LocalTool, type Tool } from "./tool.ts";
+import {
+  GenerateImageTool,
+  MCPTool,
+  SubAgentTool,
+  type LocalTool,
+  type Tool,
+} from "./tool.ts";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { ImageGenerationProvider } from "./image_generation_provider.ts";
 
 type StdioMCPConfig = {
   transport: "stdio";
@@ -30,6 +37,11 @@ export class Agent {
   toolRegistry: Record<string, Tool>;
   mcpClients: Set<Client>;
   mcpConfig?: MCPConfig;
+  imageGeneration?: {
+    provider: ImageGenerationProvider;
+    model: string;
+    imageDirectoryPath: string;
+  };
 
   constructor(args: {
     id: string;
@@ -39,12 +51,29 @@ export class Agent {
     localTools: Record<string, LocalTool<any, any>>;
     mcpConfig?: MCPConfig;
     subagents?: Record<string, Agent>;
+    imageGeneration?: {
+      provider: ImageGenerationProvider;
+      model: string;
+      imageDirectoryPath: string;
+    };
   }) {
     this.id = args.id;
     this.toolRegistry = {};
     this.role = args.role;
     this.client = args.client;
     this.model = args.model;
+
+    //add image gen tool
+    if (args.imageGeneration) {
+      this.imageGeneration = args.imageGeneration;
+      this.toolRegistry["generate_image"] = new GenerateImageTool({
+        model: this.imageGeneration.model,
+        imageGenerationProvider: this.imageGeneration.provider,
+        imageDirectoryPath: this.imageGeneration.imageDirectoryPath,
+      });
+    }
+
+    //adding subagent tool
     if (args.subagents) {
       this.subagents = args.subagents;
 
@@ -63,6 +92,8 @@ export class Agent {
         content: this.role,
       },
     ];
+
+    //adding caller provided tools
     for (const localTool of Object.values(args.localTools)) {
       this.toolRegistry[localTool.name] = localTool;
     }
@@ -249,6 +280,7 @@ export class Agent {
         continue;
       }
       const parsedArgs = JSON.parse(toolCall.function.arguments);
+      console.log(`Calling Tool: ${tool.name}${toolCall.function.arguments}`);
       const result = await tool.execute(parsedArgs);
 
       //@ts-ignore

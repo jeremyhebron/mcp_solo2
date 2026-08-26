@@ -1,7 +1,10 @@
 import type { Client } from "@modelcontextprotocol/sdk/client";
 import type { ChatCompletionFunctionTool } from "openai/resources";
-import { z, type ZodObject } from "zod";
+import { size, z, type ZodObject } from "zod";
 import type { Agent } from "./agent.ts";
+import type { ImageGenerationProvider } from "./image_generation_provider.ts";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 export abstract class Tool {
   name: string;
@@ -144,6 +147,66 @@ export class SubAgentTool extends Tool {
       console.log(`Subagent: ${finalResponse}`);
 
       return { finalResponse, usage };
+    } catch (error) {
+      return error as Error;
+    }
+  }
+}
+
+export class GenerateImageTool extends Tool {
+  imageGenerationProvider: ImageGenerationProvider;
+  model: string;
+  imageDirectoryPath: string;
+
+  constructor(args: {
+    imageGenerationProvider: ImageGenerationProvider;
+    model: string;
+    imageDirectoryPath: string;
+  }) {
+    super({
+      name: "generate_image",
+      description: "Tool that generates image from a given prompt.",
+    });
+
+    this.definition = {
+      type: "function",
+      function: {
+        name: this.name,
+        description: this.description,
+        parameters: z
+          .object({
+            prompt: z.string(),
+            size: z.enum(["1024x1024", "1536x1024", "1024x1536"]),
+          })
+          .toJSONSchema(),
+      },
+    };
+    this.imageGenerationProvider = args.imageGenerationProvider;
+    this.model = args.model;
+    this.imageDirectoryPath = args.imageDirectoryPath;
+  }
+  async execute(input: {
+    prompt: string;
+    size: "1024x1024" | "1536x1024" | "1024x1536";
+  }): Promise<string | Error> {
+    try {
+      const bytes = await this.imageGenerationProvider.generateImage({
+        model: this.model,
+        prompt: input.prompt,
+        size: input.size,
+      });
+
+      await mkdir(this.imageDirectoryPath, {
+        recursive: true,
+      });
+
+      const fullPath = path.join(
+        this.imageDirectoryPath,
+        `${crypto.randomUUID()}.png`,
+      );
+      await writeFile(fullPath, bytes);
+
+      return fullPath;
     } catch (error) {
       return error as Error;
     }
