@@ -12,6 +12,11 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ImageGenerationProvider } from "./image_generation_provider.ts";
+import type { Voice } from "./voice.ts";
+import os from "node:os";
+import path from "node:path";
+import { rm, writeFile } from "node:fs/promises";
+import sound from "sound-play";
 
 type StdioMCPConfig = {
   transport: "stdio";
@@ -42,6 +47,7 @@ export class Agent {
     model: string;
     imageDirectoryPath: string;
   };
+  voice?: Voice;
 
   constructor(args: {
     id: string;
@@ -56,12 +62,14 @@ export class Agent {
       model: string;
       imageDirectoryPath: string;
     };
+    voice?: Voice;
   }) {
     this.id = args.id;
     this.toolRegistry = {};
     this.role = args.role;
     this.client = args.client;
     this.model = args.model;
+    if (args.voice) this.voice = args.voice;
 
     //add image gen tool
     if (args.imageGeneration) {
@@ -356,6 +364,28 @@ export class Agent {
           role: "assistant",
           content: finalResponse,
         });
+
+        if (this.voice) {
+          console.log("Generating TTS...");
+          const audioBuffer = await this.voice.generateTTS(finalResponse);
+
+          if (audioBuffer instanceof Error) {
+            console.error(audioBuffer.message);
+
+            return {
+              finalResponse,
+              usage,
+            };
+          }
+
+          const tempFilePath = path.join(os.tmpdir(), crypto.randomUUID());
+
+          await writeFile(tempFilePath, audioBuffer);
+
+          await sound.play(tempFilePath);
+
+          await rm(tempFilePath);
+        }
 
         await this.closeMCPConnections();
 

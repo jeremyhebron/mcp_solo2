@@ -13,12 +13,14 @@
   "type": "module",
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@types/sound-play": "^1.1.3",
     "typescript": "^7.0.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "node-cron": "^4.6.0",
     "openai": "^7.4.0",
+    "sound-play": "^1.1.0",
     "zod": "^4.4.3"
   }
 }
