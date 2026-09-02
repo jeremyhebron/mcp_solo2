@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import OpenAI from "openai";
 
-process.loadEnvFile();
+// process.loadEnvFile();
 
 export class ImageGenerationProvider {
   client: OpenAI;

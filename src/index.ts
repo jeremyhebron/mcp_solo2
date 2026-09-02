@@ -1,7 +1,7 @@
 import "./env.ts";
 import { createInterface } from "node:readline/promises";
-import { Agent } from "./lib/agent.ts";
 import generalPurposeAgent from "./agent/index.ts";
+import whisper from "./stt/whisper.ts";
 
 const rl = createInterface({
   input: process.stdin,
@@ -23,7 +23,13 @@ process.on("SIGTERM", shutDown);
 rl.on("close", () => shutDown());
 
 while (!isShuttingDown) {
-  const prompt = await rl.question("Prompt: ");
+  let prompt = await rl.question("Prompt: ");
+
+  // open microphone and record
+  if (prompt.trim() === "/voice") {
+    prompt = await whisper.openMicAndTranscribe(rl);
+    console.log(`> ${prompt}`);
+  }
 
   const { finalResponse, usage } = await generalPurposeAgent.start({
     prompt: prompt,
