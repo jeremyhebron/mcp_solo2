@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { rm, writeFile } from "node:fs/promises";
 import sound from "sound-play";
+import type VectorDatabase from "./vector_database.ts";
 
 type StdioMCPConfig = {
   transport: "stdio";
@@ -42,6 +43,10 @@ export class Agent {
   toolRegistry: Record<string, Tool>;
   mcpClients: Set<Client>;
   mcpConfig?: MCPConfig;
+  rag?: {
+    vectorDatabase: VectorDatabase;
+    vectorSearchLimit: number;
+  };
   imageGeneration?: {
     provider: ImageGenerationProvider;
     model: string;
@@ -56,6 +61,10 @@ export class Agent {
     model: string;
     localTools: Record<string, LocalTool<any, any>>;
     mcpConfig?: MCPConfig;
+    rag?: {
+      vectorDatabase: VectorDatabase;
+      vectorSearchLimit: number;
+    };
     subagents?: Record<string, Agent>;
     imageGeneration?: {
       provider: ImageGenerationProvider;
@@ -69,6 +78,7 @@ export class Agent {
     this.role = args.role;
     this.client = args.client;
     this.model = args.model;
+    if (args.rag) this.rag = args.rag;
     if (args.voice) this.voice = args.voice;
 
     //add image gen tool
@@ -324,6 +334,26 @@ export class Agent {
       role: "user",
       content: prompt,
     });
+
+    if (this.rag) {
+      const candidates = await this.rag.vectorDatabase.query({
+        collectionId: "documents",
+        limit: this.rag.vectorSearchLimit,
+        queryContent: prompt,
+      });
+
+      if (candidates instanceof Error) {
+        console.error(candidates);
+      } else {
+        console.log(`Retrieved ${candidates.length} candidates`);
+        console.log(candidates);
+        const ragContent = ` The following content came back from a vector search against the vector databse: ${candidates.map((candidate) => candidate.content).join("\n")}`;
+        this.messages.push({
+          role: "system",
+          content: ragContent,
+        });
+      }
+    }
 
     const usage = {
       prompt_tokens: 0,
