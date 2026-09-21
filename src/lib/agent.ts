@@ -347,7 +347,7 @@ export class Agent {
       } else {
         console.log(`Retrieved ${candidates.length} candidates`);
         console.log(candidates);
-        const ragContent = ` The following content came back from a vector search against the vector databse: ${candidates.map((candidate) => candidate.content).join("\n")}`;
+        const ragContent = ` The following content came back from a vector search against the vector database. If any of the content retrieved relevant to answering the prompt, please cite the sources in your response. VECTOR SEARCH CANDIDATES: ${candidates.map((candidate) => `Content: ${candidate.content} Source: ${candidate.source}`).join("\n")}`;
         this.messages.push({
           role: "system",
           content: ragContent,

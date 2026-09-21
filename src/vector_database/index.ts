@@ -1,8 +1,10 @@
 import Embedder from "../lib/embedder.ts";
-import VectorDatabase from "../lib/vector_database.ts";
+import VectorDatabase, {
+  LanceDBVectorDatabase,
+} from "../lib/vector_database.ts";
 
-const vectorDatabase = new VectorDatabase({
-  databasePath: "vector_database.json",
+const lanceDBVectorDatabase = new LanceDBVectorDatabase({
+  databasePath: "data/lancedb",
   embedder: new Embedder({
     model: "openai/text-embedding-3-large",
     baseURL: "https://openrouter.ai/api/v1",
@@ -10,4 +12,4 @@ const vectorDatabase = new VectorDatabase({
   }),
 });
 
-export default vectorDatabase;
+export default lanceDBVectorDatabase;

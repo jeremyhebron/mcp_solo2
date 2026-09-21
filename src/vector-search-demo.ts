@@ -1,3 +1,42 @@
+import "./env.ts";
+import Embedder from "./lib/embedder.ts";
+import { LanceDBVectorDatabase } from "./lib/vector_database.ts";
+
+const lanceDB = new LanceDBVectorDatabase({
+  embedder: new Embedder({
+    model: "openai/text-embedding-3-large",
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey: process.env.OPEN_ROUTER_API_KEY!,
+  }),
+  databasePath: "data/lancedb",
+});
+
+const items = [
+  {
+    content: "this is some test text",
+    source: "/users/user/Desktop/text.txt",
+  },
+  {
+    content: "this is some test text",
+    source: "/users/user/Desktop/text.txt",
+  },
+];
+
+//test inserting
+// await lanceDB.insertMany({
+//   collectionId: "documents",
+//   contents: items,
+// });
+
+//test query
+const candidates = await lanceDB.query({
+  collectionId: "documents",
+  limit: 10,
+  queryContent: "test text",
+});
+
+console.log(candidates);
+
 // Vector / Embedding
 
 // import "./env.ts";

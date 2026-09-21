@@ -8,7 +8,7 @@ import os from "node:os";
 import { ImageGenerationProvider } from "../lib/image_generation_provider.ts";
 import path from "node:path";
 import { Voice, Voicebox } from "../lib/voice.ts";
-import vectorDatabase from "../vector_database/index.ts";
+import lanceDBVectorDatabase from "../vector_database/index.ts";
 
 const orchestratorAgent = new Agent({
   id: "Orchestrator Agent",
@@ -40,7 +40,7 @@ const orchestratorAgent = new Agent({
     webAgent,
   },
   rag: {
-    vectorDatabase: vectorDatabase,
+    vectorDatabase: lanceDBVectorDatabase,
     vectorSearchLimit: 10,
   },
 });
