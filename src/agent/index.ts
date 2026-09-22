@@ -19,7 +19,7 @@ const orchestratorAgent = new Agent({
   model: "google/gemini-3.7-flash",
   role: "Are are the orchestraion agent. You have a team of specialist for specific tasks. Use the browser agent for tasks requiring automating a browser or web scraping. Use the desktop agent for tasks requiring the file system. Use the web agent for tasks requiring search engine research",
 
-  localTools: {},
+  localTools: { getWeather },
   voice: new Voicebox({
     id: "9b95b612-4447-4084-83f4-cd9e9e586f06",
     engine: "qwen",

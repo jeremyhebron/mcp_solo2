@@ -2,9 +2,9 @@ import type OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
 import {
   GenerateImageTool,
+  LocalTool,
   MCPTool,
   SubAgentTool,
-  type LocalTool,
   type Tool,
 } from "./tool.ts";
 import { Client } from "@modelcontextprotocol/sdk/client";
@@ -18,6 +18,7 @@ import path from "node:path";
 import { rm, writeFile } from "node:fs/promises";
 import sound from "sound-play";
 import type VectorDatabase from "./vector_database.ts";
+import z from "zod";
 
 type StdioMCPConfig = {
   transport: "stdio";
@@ -273,6 +274,7 @@ export class Agent {
         index: number;
         id: string;
         function: { name: string; arguments: string };
+        approved: boolean;
       }
     >,
     superAgentUsage: {
@@ -285,9 +287,31 @@ export class Agent {
   ) {
     this.messages.push({
       role: "assistant",
-      tool_calls: toolCalls.values().toArray(),
+      tool_calls: toolCalls
+        .values()
+        .toArray()
+        //filtering out approved field for llm
+        .map((tc) => {
+          return {
+            type: "function",
+            function: {
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            },
+            id: tc.id,
+          };
+        }),
     });
     for (const toolCall of toolCalls.values()) {
+      if (!toolCall.approved) {
+        this.messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: `User chose to refuse tool call.`,
+        });
+
+        continue;
+      }
       const tool = this.toolRegistry[toolCall.function.name];
       if (!tool) {
         this.messages.push({
@@ -321,14 +345,65 @@ export class Agent {
     }
   }
 
+  loadUserSurveyTool(
+    askUserSurvey: (survey: { question: string }[]) => Promise<
+      {
+        question: string;
+        answer: string;
+      }[]
+    >,
+  ) {
+    this.toolRegistry["user_survey"] = new LocalTool({
+      name: "user_survey",
+      description:
+        "Asks the user clarifying question disambiguate a vague prompt. Use when the prompt is vague and you need more information to proceed accurately.",
+      inputZodSchema: z.object({
+        survey: z.array(
+          z.object({
+            question: z.string(),
+          }),
+        ),
+      }),
+      outputZodSchema: z.object({
+        finishedSurvey: z.array(
+          z.object({
+            question: z.string(),
+            answer: z.string(),
+          }),
+        ),
+      }),
+      async execute(input) {
+        const finishedSurvey = await askUserSurvey(input.survey);
+        return {
+          finishedSurvey,
+        };
+      },
+    });
+  }
+
   async start({
     prompt,
     maxSteps = 30,
+    askForToolCallApproval,
+    askUserSurvey,
   }: {
     prompt: string;
     maxSteps?: number;
+    askForToolCallApproval?: (args: {
+      name: string;
+      args: string;
+    }) => Promise<boolean>;
+    askUserSurvey?: (survey: { question: string }[]) => Promise<
+      {
+        question: string;
+        answer: string;
+      }[]
+    >;
   }) {
     await this.loadMCPTools();
+    if (askUserSurvey) {
+      this.loadUserSurveyTool(askUserSurvey);
+    }
 
     this.messages.push({
       role: "user",
@@ -387,8 +462,41 @@ export class Agent {
           ? usage.completion_tokens / (totalGenerationDurationMs / 1000)
           : 0;
 
+      const toolCallsWithApprovals = new Map<
+        number,
+        {
+          type: "function";
+          index: number;
+          id: string;
+          function: { name: string; arguments: string };
+          approved: boolean;
+        }
+      >();
+      for (const [key, toolCall] of toolCalls.entries()) {
+        toolCallsWithApprovals.set(key, {
+          ...toolCall,
+          approved: true,
+        });
+      }
+
       if (toolCalls.size > 0) {
-        await this.executeToolCalls(toolCalls, usage);
+        if (askForToolCallApproval) {
+          for (const toolCall of toolCallsWithApprovals.values()) {
+            const tool = this.toolRegistry[toolCall.function.name];
+
+            if (!tool) continue;
+
+            if (tool.requiresArppoval) {
+              const approved = await askForToolCallApproval({
+                name: toolCall.function.name,
+                args: toolCall.function.arguments,
+              });
+
+              toolCall.approved = approved;
+            }
+          }
+        }
+        await this.executeToolCalls(toolCallsWithApprovals, usage);
       } else if (finalResponse) {
         this.messages.push({
           role: "assistant",

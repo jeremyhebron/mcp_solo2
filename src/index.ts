@@ -33,6 +33,27 @@ while (!isShuttingDown) {
 
   const { finalResponse, usage } = await generalPurposeAgent.start({
     prompt: prompt,
+    async askUserSurvey(survey) {
+      const finishedSurvey = [];
+      for (const { question } of survey) {
+        const answer = await rl.question(`Question ${question}: `);
+
+        finishedSurvey.push({
+          question,
+          answer,
+        });
+      }
+      return finishedSurvey;
+    },
+    async askForToolCallApproval({ name, args }) {
+      const approved = await rl.question(
+        `Approve Tool Call: ${name}(${args})  (y/n)  `,
+      );
+      if (approved === "y") {
+        return true;
+      }
+      return false;
+    },
   });
 
   process.stdout.write("\n");

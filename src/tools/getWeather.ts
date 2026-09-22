@@ -4,6 +4,7 @@ import { LocalTool } from "../lib/tool.ts";
 const getWeather = new LocalTool({
   name: "get_weather",
   description: "Fetches the weather",
+  requiresApproval: true,
   inputZodSchema: z.object({
     location: z.string(),
   }),

@@ -9,11 +9,17 @@ import path from "node:path";
 export abstract class Tool {
   name: string;
   description: string;
+  requiresArppoval: boolean;
   definition: ChatCompletionFunctionTool;
 
-  constructor(args: { name: string; description: string }) {
+  constructor(args: {
+    name: string;
+    description: string;
+    requiresApproval: boolean;
+  }) {
     this.name = args.name;
     this.description = args.description;
+    this.requiresArppoval = args.requiresApproval;
     this.definition = {
       type: "function",
       function: {
@@ -40,6 +46,7 @@ export class LocalTool<
     description: string;
     inputZodSchema: InputZodSchema;
     outputZodSchema: OutputZodSchema;
+    requiresApproval?: boolean;
     execute: (
       input: z.infer<InputZodSchema>,
     ) => Promise<z.infer<OutputZodSchema>>;
@@ -47,6 +54,7 @@ export class LocalTool<
     super({
       name: args.name,
       description: args.description,
+      requiresApproval: args.requiresApproval ?? false,
     });
     this.inputZodSchema = args.inputZodSchema;
     this.outputZodScehma = args.outputZodSchema;
@@ -75,6 +83,7 @@ export class MCPTool extends Tool {
     super({
       name: args.name,
       description: args.description,
+      requiresApproval: true,
     });
     this.definition = args.definition;
     this.mcpClient = args.mcpClient;
@@ -105,6 +114,7 @@ export class SubAgentTool extends Tool {
     super({
       name: "subagent_tool",
       description: `Use this tool to delegate a task to a specialist agent. the subagents are as follows: ${subagentDescription}`,
+      requiresApproval: false,
     });
     this.subagents = args.subagents;
     const agentIds = Object.values(this.subagents).map(
@@ -162,10 +172,12 @@ export class GenerateImageTool extends Tool {
     imageGenerationProvider: ImageGenerationProvider;
     model: string;
     imageDirectoryPath: string;
+    requiresApproval?: boolean;
   }) {
     super({
       name: "generate_image",
       description: "Tool that generates image from a given prompt.",
+      requiresApproval: args.requiresApproval ?? false,
     });
 
     this.definition = {
