@@ -15,10 +15,12 @@ import type { ImageGenerationProvider } from "./image_generation_provider.ts";
 import type { Voice } from "./voice.ts";
 import os from "node:os";
 import path from "node:path";
-import { rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import sound from "sound-play";
 import type VectorDatabase from "./vector_database.ts";
 import z from "zod";
+
+const AGENT_CONFIG_PATH = "agent_config.json";
 
 type StdioMCPConfig = {
   transport: "stdio";
@@ -34,6 +36,33 @@ type StreamableHTTPConfig = {
 
 type MCPConfig = Record<string, StdioMCPConfig | StreamableHTTPConfig>;
 
+type AgentConfig = Record<
+  string,
+  {
+    toolPolicy: Record<
+      string,
+      {
+        alwaysAllow: boolean;
+      }
+    >;
+  }
+>;
+
+type AskUserToolApprovalCallbackFn = (args: {
+  name: string;
+  args: string;
+}) => Promise<"allow_once" | "always_allow" | "reject">;
+
+type ToolCallsWithApprovals = Map<
+  number,
+  {
+    type: "function";
+    index: number;
+    id: string;
+    function: { name: string; arguments: string };
+    approved: boolean;
+  }
+>;
 export class Agent {
   id: string;
   role: string;
@@ -381,6 +410,83 @@ export class Agent {
     });
   }
 
+  async loadConfig() {
+    const initialAgentConfigState: AgentConfig = {
+      [this.id]: {
+        toolPolicy: {},
+      },
+    };
+
+    try {
+      const rawConfig = await readFile(AGENT_CONFIG_PATH, "utf-8");
+
+      const config: AgentConfig = JSON.parse(rawConfig);
+
+      //if the agent is not set in the config yet, set it
+      if (this.id in config === false) {
+        config[this.id] = {
+          toolPolicy: {},
+        };
+        await writeFile(AGENT_CONFIG_PATH, JSON.stringify(config, null, 2));
+      }
+
+      return config;
+    } catch (error) {
+      //if the file doesnt exist on disk yet, create it
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        await writeFile(
+          AGENT_CONFIG_PATH,
+          JSON.stringify(initialAgentConfigState, null, 2),
+        );
+
+        return structuredClone(initialAgentConfigState)!;
+      }
+      throw error;
+    }
+  }
+
+  async saveConfig(config: AgentConfig) {
+    await writeFile(AGENT_CONFIG_PATH, JSON.stringify(config, null, 2));
+  }
+
+  async collectToolApprovals(
+    askForToolCallApproval: AskUserToolApprovalCallbackFn,
+    toolCallsWithApprovals: ToolCallsWithApprovals,
+  ) {
+    const config = await this.loadConfig();
+    const agentConfig = config[this.id]!;
+    for (const toolCall of toolCallsWithApprovals.values()) {
+      const tool = this.toolRegistry[toolCall.function.name];
+
+      if (!tool) continue;
+
+      if (tool.requiresApproval) {
+        const toolPolicy = agentConfig.toolPolicy[tool.name];
+
+        if (!toolPolicy || !toolPolicy.alwaysAllow) {
+          const approvalResult = await askForToolCallApproval({
+            name: toolCall.function.name,
+            args: toolCall.function.arguments,
+          });
+          if (!toolPolicy) {
+            agentConfig.toolPolicy[tool.name] = {
+              alwaysAllow: approvalResult === "always_allow" ? true : false,
+            };
+          } else {
+            toolPolicy.alwaysAllow =
+              approvalResult === "always_allow" ? true : false;
+          }
+
+          await this.saveConfig(config);
+
+          toolCall.approved =
+            approvalResult === "always_allow" ||
+            approvalResult === "allow_once";
+        }
+      }
+    }
+  }
+
   async start({
     prompt,
     maxSteps = 30,
@@ -389,10 +495,7 @@ export class Agent {
   }: {
     prompt: string;
     maxSteps?: number;
-    askForToolCallApproval?: (args: {
-      name: string;
-      args: string;
-    }) => Promise<boolean>;
+    askForToolCallApproval?: AskUserToolApprovalCallbackFn;
     askUserSurvey?: (survey: { question: string }[]) => Promise<
       {
         question: string;
@@ -462,16 +565,7 @@ export class Agent {
           ? usage.completion_tokens / (totalGenerationDurationMs / 1000)
           : 0;
 
-      const toolCallsWithApprovals = new Map<
-        number,
-        {
-          type: "function";
-          index: number;
-          id: string;
-          function: { name: string; arguments: string };
-          approved: boolean;
-        }
-      >();
+      const toolCallsWithApprovals: ToolCallsWithApprovals = new Map();
       for (const [key, toolCall] of toolCalls.entries()) {
         toolCallsWithApprovals.set(key, {
           ...toolCall,
@@ -481,21 +575,12 @@ export class Agent {
 
       if (toolCalls.size > 0) {
         if (askForToolCallApproval) {
-          for (const toolCall of toolCallsWithApprovals.values()) {
-            const tool = this.toolRegistry[toolCall.function.name];
-
-            if (!tool) continue;
-
-            if (tool.requiresArppoval) {
-              const approved = await askForToolCallApproval({
-                name: toolCall.function.name,
-                args: toolCall.function.arguments,
-              });
-
-              toolCall.approved = approved;
-            }
-          }
+          await this.collectToolApprovals(
+            askForToolCallApproval,
+            toolCallsWithApprovals,
+          );
         }
+
         await this.executeToolCalls(toolCallsWithApprovals, usage);
       } else if (finalResponse) {
         this.messages.push({

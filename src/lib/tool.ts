@@ -9,7 +9,7 @@ import path from "node:path";
 export abstract class Tool {
   name: string;
   description: string;
-  requiresArppoval: boolean;
+  requiresApproval: boolean;
   definition: ChatCompletionFunctionTool;
 
   constructor(args: {
@@ -19,7 +19,7 @@ export abstract class Tool {
   }) {
     this.name = args.name;
     this.description = args.description;
-    this.requiresArppoval = args.requiresApproval;
+    this.requiresApproval = args.requiresApproval;
     this.definition = {
       type: "function",
       function: {
