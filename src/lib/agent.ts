@@ -48,10 +48,57 @@ type AgentConfig = Record<
   }
 >;
 
+const userSurveryToolInputSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    question: z.string(),
+  }),
+  z.object({
+    type: z.literal("single_choice"),
+    question: z.string(),
+    choices: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("multiple_choice"),
+    question: z.string(),
+    choices: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("yes/no"),
+    question: z.string(),
+  }),
+]);
+
+const userSurveryToolOutputSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    question: z.string(),
+  }),
+  z.object({
+    type: z.literal("single_choice"),
+    question: z.string(),
+    answer: z.string(),
+  }),
+  z.object({
+    type: z.literal("multiple_choice"),
+    question: z.string(),
+    answer: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("yes/no"),
+    question: z.string(),
+    answer: z.boolean(),
+  }),
+]);
+
 type AskUserToolApprovalCallbackFn = (args: {
   name: string;
   args: string;
 }) => Promise<"allow_once" | "always_allow" | "reject">;
+
+type AskUserSurveyCallbackFn = (
+  survey: z.infer<typeof userSurveryToolInputSchema>[],
+) => Promise<z.infer<typeof userSurveryToolOutputSchema>[]>;
 
 type ToolCallsWithApprovals = Map<
   number,
@@ -63,6 +110,7 @@ type ToolCallsWithApprovals = Map<
     approved: boolean;
   }
 >;
+
 export class Agent {
   id: string;
   role: string;
@@ -234,6 +282,7 @@ export class Agent {
         index: number;
         id: string;
         function: { name: string; arguments: string };
+        approved: boolean;
       }
     > = new Map();
 
@@ -276,6 +325,7 @@ export class Agent {
                 name: toolCall.function?.name ?? "",
                 arguments: toolCall.function?.arguments ?? "",
               },
+              approved: true,
             });
           }
         }
@@ -374,32 +424,16 @@ export class Agent {
     }
   }
 
-  loadUserSurveyTool(
-    askUserSurvey: (survey: { question: string }[]) => Promise<
-      {
-        question: string;
-        answer: string;
-      }[]
-    >,
-  ) {
+  loadUserSurveyTool(askUserSurvey: AskUserSurveyCallbackFn) {
     this.toolRegistry["user_survey"] = new LocalTool({
       name: "user_survey",
       description:
         "Asks the user clarifying question disambiguate a vague prompt. Use when the prompt is vague and you need more information to proceed accurately.",
       inputZodSchema: z.object({
-        survey: z.array(
-          z.object({
-            question: z.string(),
-          }),
-        ),
+        survey: z.array(userSurveryToolInputSchema),
       }),
       outputZodSchema: z.object({
-        finishedSurvey: z.array(
-          z.object({
-            question: z.string(),
-            answer: z.string(),
-          }),
-        ),
+        finishedSurvey: z.array(userSurveryToolOutputSchema),
       }),
       async execute(input) {
         const finishedSurvey = await askUserSurvey(input.survey);
@@ -496,12 +530,7 @@ export class Agent {
     prompt: string;
     maxSteps?: number;
     askForToolCallApproval?: AskUserToolApprovalCallbackFn;
-    askUserSurvey?: (survey: { question: string }[]) => Promise<
-      {
-        question: string;
-        answer: string;
-      }[]
-    >;
+    askUserSurvey?: AskUserSurveyCallbackFn;
   }) {
     await this.loadMCPTools();
     if (askUserSurvey) {
@@ -565,23 +594,12 @@ export class Agent {
           ? usage.completion_tokens / (totalGenerationDurationMs / 1000)
           : 0;
 
-      const toolCallsWithApprovals: ToolCallsWithApprovals = new Map();
-      for (const [key, toolCall] of toolCalls.entries()) {
-        toolCallsWithApprovals.set(key, {
-          ...toolCall,
-          approved: true,
-        });
-      }
-
       if (toolCalls.size > 0) {
         if (askForToolCallApproval) {
-          await this.collectToolApprovals(
-            askForToolCallApproval,
-            toolCallsWithApprovals,
-          );
+          await this.collectToolApprovals(askForToolCallApproval, toolCalls);
         }
 
-        await this.executeToolCalls(toolCallsWithApprovals, usage);
+        await this.executeToolCalls(toolCalls, usage);
       } else if (finalResponse) {
         this.messages.push({
           role: "assistant",

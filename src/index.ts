@@ -2,7 +2,7 @@ import "./env.ts";
 import { createInterface } from "node:readline/promises";
 import generalPurposeAgent from "./agent/index.ts";
 import whisper from "./stt/whisper.ts";
-import { input, select } from "@inquirer/prompts";
+import { checkbox, confirm, input, select } from "@inquirer/prompts";
 
 let isShuttingDown = false;
 
@@ -30,16 +30,66 @@ while (!isShuttingDown) {
     prompt: prompt,
     async askUserSurvey(survey) {
       const finishedSurvey = [];
-      for (const { question } of survey) {
-        const answer = await input({
-          message: question,
-        });
+      for (const question of survey) {
+        if (question.type === "text") {
+          const answer = await input({
+            message: question.question,
+          });
 
-        finishedSurvey.push({
-          question,
-          answer,
-        });
+          finishedSurvey.push({
+            type: question.type,
+            question: question.question,
+            answer,
+          });
+        } else if (question.type === "single_choice") {
+          let answer = await select({
+            message: question.question,
+            choices: [...question.choices, "Enter your own answer"],
+          });
+          if (answer === "Enter your own answer") {
+            answer = await input({
+              message: question.question,
+            });
+          }
+          finishedSurvey.push({
+            type: question.type,
+            question: question.question,
+            answer,
+          });
+        } else if (question.type === "multiple_choice") {
+          let answer = await checkbox({
+            message: question.question,
+            choices: [...question.choices, "Enter your own answer"],
+          });
+          if (answer.includes("Enter your own answer")) {
+            const selectedAnswers = answer.filter(
+              (answer) => answer !== "Enter your own answer",
+            );
+            answer = [
+              ...selectedAnswers,
+              await input({
+                message: question.question,
+              }),
+            ];
+          }
+          finishedSurvey.push({
+            type: question.type,
+            question: question.question,
+            answer,
+          });
+        } else {
+          const answer = await confirm({
+            message: question.question,
+          });
+
+          finishedSurvey.push({
+            type: question.type,
+            question: question.question,
+            answer,
+          });
+        }
       }
+
       return finishedSurvey;
     },
     async askForToolCallApproval({ name, args }) {

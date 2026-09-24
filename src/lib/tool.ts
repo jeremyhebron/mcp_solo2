@@ -5,6 +5,7 @@ import type { Agent } from "./agent.ts";
 import type { ImageGenerationProvider } from "./image_generation_provider.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { zodFunction } from "openai/helpers/zod.js";
 
 export abstract class Tool {
   name: string;
@@ -59,7 +60,11 @@ export class LocalTool<
     this.inputZodSchema = args.inputZodSchema;
     this.outputZodScehma = args.outputZodSchema;
     this._execute = args.execute;
-    this.definition.function.parameters = this.inputZodSchema.toJSONSchema();
+    this.definition = zodFunction({
+      name: this.name,
+      description: this.description,
+      parameters: this.inputZodSchema,
+    });
   }
 
   async execute(input: z.infer<InputZodSchema>) {
