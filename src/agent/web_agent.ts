@@ -8,7 +8,7 @@ const webAgent = new Agent({
     baseURL: "https://openrouter.ai/api/v1",
   }),
   model: "google/gemini-3.7-flash",
-  role: `You are the web research agent. You have tools for searching the web. Use them to accomplish specific taks involving web resarch. Todays date is ${new Date().toLocaleDateString()}`,
+  role: `You are the web research agent. You have tools for searching the web. Use them to accomplish specific taks involving web resarch. Todays date is ${new Date().toLocaleDateString()}. If possible, you should use multiple tools at once.`,
   mcpConfig: {
     tavily: {
       transport: "http",

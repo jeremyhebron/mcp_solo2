@@ -345,6 +345,63 @@ export class Agent {
     return { finalResponse, toolCalls, usage };
   }
 
+  private async executeToolCall(
+    toolCall: {
+      type: "function";
+      index: number;
+      id: string;
+      function: { name: string; arguments: string };
+      approved: boolean;
+    },
+    superAgentUsage: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      tps: number;
+      time_to_first_token_ms: number;
+    },
+  ) {
+    if (!toolCall.approved) {
+      this.messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: `User chose to refuse tool call.`,
+      });
+
+      return;
+    }
+    const tool = this.toolRegistry[toolCall.function.name];
+    if (!tool) {
+      this.messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: `Tool with name: ${toolCall.function.name} does not exist`,
+      });
+      return;
+    }
+    const parsedArgs = JSON.parse(toolCall.function.arguments);
+    console.log(`Calling Tool: ${tool.name}${toolCall.function.arguments}`);
+    const result = await tool.execute(parsedArgs);
+
+    //@ts-ignore
+    if (tool instanceof SubAgentTool && result instanceof Error === false) {
+      superAgentUsage.completion_tokens += (
+        result as any
+      ).usage.completion_tokens;
+      superAgentUsage.prompt_tokens += (result as any).usage.prompt_tokens;
+      superAgentUsage.total_tokens += (result as any).usage.total_tokens;
+    }
+
+    this.messages.push({
+      role: "tool",
+      tool_call_id: toolCall.id,
+      content:
+        result instanceof Error
+          ? `Error: ${result.message}`
+          : JSON.stringify(result),
+    });
+  }
+
   private async executeToolCalls(
     toolCalls: Map<
       number,
@@ -381,46 +438,31 @@ export class Agent {
           };
         }),
     });
-    for (const toolCall of toolCalls.values()) {
-      if (!toolCall.approved) {
-        this.messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: `User chose to refuse tool call.`,
-        });
 
-        continue;
-      }
+    const sequentialTools = [...toolCalls.values()].filter((toolCall) => {
       const tool = this.toolRegistry[toolCall.function.name];
-      if (!tool) {
-        this.messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: `Tool with name: ${toolCall.function.name} does not exist`,
-        });
-        continue;
-      }
-      const parsedArgs = JSON.parse(toolCall.function.arguments);
-      console.log(`Calling Tool: ${tool.name}${toolCall.function.arguments}`);
-      const result = await tool.execute(parsedArgs);
+      if (!tool) return false;
 
-      //@ts-ignore
-      if (tool instanceof SubAgentTool && result instanceof Error === false) {
-        superAgentUsage.completion_tokens += (
-          result as any
-        ).usage.completion_tokens;
-        superAgentUsage.prompt_tokens += (result as any).usage.prompt_tokens;
-        superAgentUsage.total_tokens += (result as any).usage.total_tokens;
-      }
+      return tool.executionType === "sequential";
+    });
 
-      this.messages.push({
-        role: "tool",
-        tool_call_id: toolCall.id,
-        content:
-          result instanceof Error
-            ? `Error: ${result.message}`
-            : JSON.stringify(result),
-      });
+    const parallelTools = [...toolCalls.values()].filter((toolCall) => {
+      const tool = this.toolRegistry[toolCall.function.name];
+      if (!tool) return false;
+
+      return tool.executionType === "parallel";
+    });
+
+    //parallel execution
+    await Promise.all(
+      parallelTools.map(async (toolCall) => {
+        await this.executeToolCall(toolCall, superAgentUsage);
+      }),
+    );
+
+    //sequential execution
+    for (const toolCall of sequentialTools) {
+      await this.executeToolCall(toolCall, superAgentUsage);
     }
   }
 

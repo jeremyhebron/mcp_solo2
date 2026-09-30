@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import generalPurposeAgent from "./agent/index.ts";
 import whisper from "./stt/whisper.ts";
 import { checkbox, confirm, input, select } from "@inquirer/prompts";
+import webAgent from "./agent/web_agent.ts";
 
 let isShuttingDown = false;
 
@@ -26,7 +27,7 @@ while (!isShuttingDown) {
     console.log(`> ${prompt}`);
   }
 
-  const { finalResponse, usage } = await generalPurposeAgent.start({
+  const { finalResponse, usage } = await webAgent.start({
     prompt: prompt,
     async askUserSurvey(survey) {
       const finishedSurvey = [];

@@ -12,15 +12,18 @@ export abstract class Tool {
   description: string;
   requiresApproval: boolean;
   definition: ChatCompletionFunctionTool;
+  executionType: "sequential" | "parallel";
 
   constructor(args: {
     name: string;
     description: string;
     requiresApproval: boolean;
+    executionType?: "sequential" | "parallel";
   }) {
     this.name = args.name;
     this.description = args.description;
     this.requiresApproval = args.requiresApproval;
+    this.executionType = args.executionType ?? "sequential";
     this.definition = {
       type: "function",
       function: {
@@ -48,6 +51,8 @@ export class LocalTool<
     inputZodSchema: InputZodSchema;
     outputZodSchema: OutputZodSchema;
     requiresApproval?: boolean;
+    executionType?: "sequential" | "parallel";
+
     execute: (
       input: z.infer<InputZodSchema>,
     ) => Promise<z.infer<OutputZodSchema>>;
@@ -60,6 +65,7 @@ export class LocalTool<
     this.inputZodSchema = args.inputZodSchema;
     this.outputZodScehma = args.outputZodSchema;
     this._execute = args.execute;
+    this.executionType = args.executionType ?? "sequential";
     this.definition = zodFunction({
       name: this.name,
       description: this.description,
@@ -89,6 +95,7 @@ export class MCPTool extends Tool {
       name: args.name,
       description: args.description,
       requiresApproval: true,
+      executionType: "sequential",
     });
     this.definition = args.definition;
     this.mcpClient = args.mcpClient;
@@ -120,6 +127,7 @@ export class SubAgentTool extends Tool {
       name: "subagent_tool",
       description: `Use this tool to delegate a task to a specialist agent. the subagents are as follows: ${subagentDescription}`,
       requiresApproval: false,
+      executionType: "parallel",
     });
     this.subagents = args.subagents;
     const agentIds = Object.values(this.subagents).map(
@@ -183,6 +191,7 @@ export class GenerateImageTool extends Tool {
       name: "generate_image",
       description: "Tool that generates image from a given prompt.",
       requiresApproval: args.requiresApproval ?? false,
+      executionType: "parallel",
     });
 
     this.definition = {
