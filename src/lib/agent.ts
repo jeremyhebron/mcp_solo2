@@ -18,7 +18,9 @@ import path from "node:path";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import sound from "sound-play";
 import type VectorDatabase from "./vector_database.ts";
-import z from "zod";
+import z, { success } from "zod";
+import { subscribe } from "node:diagnostics_channel";
+import { InputTokens } from "openai/resources/responses.mjs";
 
 const AGENT_CONFIG_PATH = "agent_config.json";
 
@@ -45,8 +47,12 @@ type AgentConfig = Record<
         alwaysAllow: boolean;
       }
     >;
+    memories: {
+      id: string;
+      content: string;
+    }[];
   }
->;
+> & { globalMemories: { id: string; content: string }[] };
 
 const userSurveryToolInputSchema = z.discriminatedUnion("type", [
   z.object({
@@ -131,6 +137,7 @@ export class Agent {
     imageDirectoryPath: string;
   };
   voice?: Voice;
+  memory?: boolean;
 
   constructor(args: {
     id: string;
@@ -150,14 +157,113 @@ export class Agent {
       imageDirectoryPath: string;
     };
     voice?: Voice;
+    memory?: boolean;
   }) {
     this.id = args.id;
     this.toolRegistry = {};
     this.role = args.role;
     this.client = args.client;
     this.model = args.model;
+    this.messages = [
+      {
+        role: "system",
+        content: this.role,
+      },
+    ];
     if (args.rag) this.rag = args.rag;
     if (args.voice) this.voice = args.voice;
+    if (args.memory) {
+      this.memory = args.memory;
+      this.toolRegistry["delete_memory"] = new LocalTool({
+        name: "delete_memory",
+        description: "Use this tool to delete an existing memory by ID",
+        requiresApproval: false,
+        inputZodSchema: z.object({
+          id: z.string(),
+        }),
+        outputZodSchema: z.object({
+          success: z.boolean(),
+        }),
+        execute: async (input) => {
+          const config = await this.loadConfig();
+          const agentConfig = config[this.id];
+          config.globalMemories = config.globalMemories.filter(
+            (memory) => memory.id !== input.id,
+          );
+          if (agentConfig) {
+            agentConfig.memories = agentConfig?.memories.filter(
+              (memory) => memory.id !== input.id,
+            );
+          }
+          await this.saveConfig(config);
+          return {
+            success: true,
+          };
+        },
+      });
+      this.toolRegistry["update_memory"] = new LocalTool({
+        name: "update_memory",
+        description: "Use this tool to update an existing memory by ID",
+        requiresApproval: false,
+        inputZodSchema: z.object({
+          id: z.string(),
+          content: z.string(),
+        }),
+        outputZodSchema: z.object({
+          success: z.boolean(),
+        }),
+        execute: async (input) => {
+          const config = await this.loadConfig();
+          const agentConfig = config[this.id];
+          const globalMemory = config.globalMemories.find(
+            (memory) => memory.id === input.id,
+          );
+          if (globalMemory) {
+            globalMemory.content = input.content;
+          } else if (agentConfig) {
+            const memory = agentConfig.memories.find(
+              (memory) => memory.id === input.id,
+            );
+            if (memory) {
+              memory.content = input.content;
+            }
+          }
+          await this.saveConfig(config);
+          return {
+            success: true,
+          };
+        },
+      });
+      this.toolRegistry["create_memory"] = new LocalTool({
+        executionType: "sequential",
+        name: "create_memory",
+        description:
+          "Use this tool to store a piece of information that should always be remembered across sessions. Identify the intent of the information given  and be careful what information you are storying as global bs scoped to you, ",
+        inputZodSchema: z.object({
+          memory: z.string(),
+          isGlobalMemory: z.boolean().default(false),
+        }),
+        outputZodSchema: z.object({
+          success: z.boolean(),
+        }),
+        requiresApproval: false,
+        execute: async (input) => {
+          const config = await this.loadConfig();
+          const agentConfig = config[this.id];
+          const memories = input.isGlobalMemory
+            ? config.globalMemories
+            : agentConfig?.memories;
+          memories?.push({
+            id: crypto.randomUUID(),
+            content: input.memory,
+          });
+          await this.saveConfig(config);
+          return {
+            success: true,
+          };
+        },
+      });
+    }
 
     //add image gen tool
     if (args.imageGeneration) {
@@ -182,12 +288,6 @@ export class Agent {
     if (args.mcpConfig) this.mcpConfig = args.mcpConfig;
 
     this.mcpClients = new Set();
-    this.messages = [
-      {
-        role: "system",
-        content: this.role,
-      },
-    ];
 
     //adding caller provided tools
     for (const localTool of Object.values(args.localTools)) {
@@ -487,10 +587,13 @@ export class Agent {
   }
 
   async loadConfig() {
+    //@ts-ignore
     const initialAgentConfigState: AgentConfig = {
       [this.id]: {
         toolPolicy: {},
+        memories: [],
       },
+      globalMemories: [],
     };
 
     try {
@@ -502,6 +605,7 @@ export class Agent {
       if (this.id in config === false) {
         config[this.id] = {
           toolPolicy: {},
+          memories: [],
         };
         await writeFile(AGENT_CONFIG_PATH, JSON.stringify(config, null, 2));
       }
@@ -574,6 +678,24 @@ export class Agent {
     askForToolCallApproval?: AskUserToolApprovalCallbackFn;
     askUserSurvey?: AskUserSurveyCallbackFn;
   }) {
+    if (this.memory) {
+      const config = await this.loadConfig();
+      const agentConfig = config[this.id];
+      const allMemories = [
+        ...config.globalMemories,
+        ...(agentConfig?.memories ?? []),
+      ];
+
+      this.messages.push({
+        role: "system",
+        content: allMemories
+          .map(
+            (memory) =>
+              `<user_memory><id>${memory.id}</id><conent>${memory.content}</content></user_memory>`,
+          )
+          .join(""),
+      });
+    }
     await this.loadMCPTools();
     if (askUserSurvey) {
       this.loadUserSurveyTool(askUserSurvey);

@@ -43,6 +43,7 @@ const orchestratorAgent = new Agent({
     vectorDatabase: lanceDBVectorDatabase,
     vectorSearchLimit: 10,
   },
+  memory: true,
 });
 
 export default orchestratorAgent;

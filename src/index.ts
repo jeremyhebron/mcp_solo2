@@ -27,7 +27,7 @@ while (!isShuttingDown) {
     console.log(`> ${prompt}`);
   }
 
-  const { finalResponse, usage } = await webAgent.start({
+  const { finalResponse, usage } = await generalPurposeAgent.start({
     prompt: prompt,
     async askUserSurvey(survey) {
       const finishedSurvey = [];
